@@ -1,4 +1,4 @@
-from typing import Iterable, Dict
+from typing import Iterable, Dict, Optional
 
 from os import listdir
 from uuid import uuid4
@@ -8,34 +8,41 @@ from json import loads, dumps
 from random import getrandbits
 from websocket import WebSocketApp
 from requests import Session, get, post
+from enum import Enum
+
+class ServerMessage(Enum):
+    PING = "2"
+    PING_ACK = "3"
+    PENDING = "42"
+    RESPONSE = "43"
+class ClientMessage(Enum):
+    PONG = "3"
+    PONG_ACK = "5"
+    QUERY = "42"
 
 class Perplexity:
-    def __init__(self, email: str = None) -> None:
+    def __init__(self, email: str) -> None:
         self.session: Session = Session()
         self.user_agent: dict = { "User-Agent": "Ask/2.9.1/2406 (iOS; iPhone; Version 17.1) isiOSOnMac/false", "X-Client-Name": "Perplexity-iOS", "X-App-ApiClient": "ios" }
         self.session.headers.update(self.user_agent)
 
-        if email and ".perplexity_session" in listdir():
+        if ".perplexity_session" in listdir():
             self._recover_session(email)
         else:
             self._init_session_without_login()
-
-            if email:
-                self._login(email)
+            self._login(email)
 
         self.email: str = email
         self.t: str = self._get_t()
         self.sid: str = self._get_sid()
     
         self.n: int = 1
-        self.base: int = 420
         self.queue: list = []
         self.finished: bool = True
         self.last_uuid: str = None
         self.backend_uuid: str = None # unused because we can't yet follow-up questions
         self.frontend_session_id: str = str(uuid4())
 
-        assert self._ask_anonymous_user(), "failed to ask anonymous user"
         self.ws: WebSocketApp = self._init_websocket()
         self.ws_thread: Thread = Thread(target=self.ws.run_forever).start()
         self._auth_session()
@@ -81,25 +88,6 @@ class Perplexity:
             url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}"
         ).text[1:])["sid"]
 
-    def _ask_anonymous_user(self) -> bool:
-        response = self.session.post(
-            url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}",
-            data="40{\"jwt\":\"anonymous-ask-user\"}"
-        ).text
-
-        return response == "OK"
-
-    def _start_interaction(self) -> None:
-        self.finished = False
-
-        if self.n == 9:
-            self.n = 0
-            self.base *= 10
-        else:
-            self.n += 1
-
-        self.queue = []
-
     def _get_cookies_str(self) -> str:
         cookies = ""
         for key, value in self.session.cookies.get_dict().items():
@@ -124,10 +112,12 @@ class Perplexity:
             ws.send("5")
 
         def on_message(ws: WebSocketApp, message: str) -> None:
-            if message == "2":
-                ws.send("3")
+            if message == ServerMessage.PING.value:
+                ws.send(ClientMessage.PONG.value)
+            elif message[0] == ServerMessage.PING_ACK.value and message[1:] == "probe":
+                ws.send(ClientMessage.PONG_ACK.value)
             elif not self.finished:
-                if message.startswith("42"):
+                if message.startswith(ServerMessage.PENDING.value):
                     message : list = loads(message[2:])
                     content: dict = message[1]
                     if "mode" in content and content["mode"] == "copilot":
@@ -140,8 +130,9 @@ class Perplexity:
                     if message[0] == "query_answered":
                         self.last_uuid = content["uuid"]
                         self.finished = True
-                elif message.startswith("43"):
-                    message: dict = loads(message[3:])[0]
+                elif message.startswith(ServerMessage.RESPONSE.value + str(self.n)):
+                    prefix = ServerMessage.RESPONSE.value + str(self.n)
+                    message: dict = loads(message[len(prefix):])[0]
                     if ("uuid" in message and message["uuid"] != self.last_uuid) or "uuid" not in message:
                         self.queue.append(message)
                         self.finished = True
@@ -155,56 +146,71 @@ class Perplexity:
             on_error=lambda ws, err: print(f"websocket error: {err}")
         )
     
-    def _s(self, query: str, mode: str = "concise", search_focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", in_page: str = None, in_domain: str = None) -> None:
+    def _s(self, query: str, mode: str = "concise", search_focus: str = "internet", followup_uuid=False, follow_up=None, attachments: list[str] = [], language: str = "en-GB", timezone: str = "America/Chicago", in_page: str = None, in_domain: str = None, is_incognito: bool = False) -> None:
+        """
+
+        Notes:
+        - Attachments from followups are not automatically attached to the follow-up question.
+        """
         assert self.finished, "already searching"
         assert mode in ["concise", "copilot"], "invalid mode"
+        
         assert len(attachments) <= 4, "too many attachments: max 4"
-        assert search_focus in ["internet", "scholar", "writing", "wolfram", "youtube", "reddit"], "invalid search focus"
+        assert in_page is None or in_domain is None, "in_page and in_domain can't be used together"
+        assert search_focus in ["internet", "scholar", "writing", "wolfram", "youtube", "reddit", "reasoning"], "invalid search focus"
+        if follow_up is not None:
+            assert len(attachments) == 0
 
         if in_page:
             search_focus = "in_page"
         if in_domain:
             search_focus = "in_domain"
 
-        self._start_interaction()
-        ws_message: str = f"{self.base + self.n}" + dumps([
+        ws_message: str = f"{ClientMessage.QUERY.value + str(self.n)}" + dumps([
             "perplexity_ask",
             query,
             {
-                "version": "2.1",
-                "source": "default", # "ios"
-                "frontend_session_id": self.frontend_session_id,
+                "version": "2.13",
+                "source": "default",
+                "last_backend_uuid": followup_uuid,
+                "read_write_token": "",
+                "attachments":  attachments,
                 "language": language,
-                "timezone": "CET",
-                "attachments": attachments,
+                "timezone": timezone,
                 "search_focus": search_focus,
+                "frontend_session_id": self.frontend_session_id,
                 "frontend_uuid": str(uuid4()),
                 "mode": mode,
-                # "use_inhouse_model": True
-                "in_page": in_page,
+                # is_related_query, visitor_id, user_nextauth_id, frontend_context_uuid=None|uuid, prompt_source=user, query_source=modal|followup
+                "in_page": search_focus,
+                "is_incognito": is_incognito,
                 "in_domain": in_domain
             }
         ])
 
-        self.ws.send(ws_message)
+        self._sendquery(ws_message)
 
-    def search(self, query: str, mode: str = "concise", search_focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", timeout: float = 30, in_page: str = None, in_domain: str = None) -> Iterable[Dict]:
-        self._s(query, mode, search_focus, attachments, language, in_page, in_domain)
+    def _sendquery(self, msg: str) -> None:
+        self.ws.send(msg)
+        self.n += 1
+
+    def search(self, query: str,  timeout: Optional[float] = None, **kwargs) -> Iterable[Dict]:
+        self._s(query, **kwargs)
 
         start_time: float = time()
         while (not self.finished) or len(self.queue) != 0:
-            if timeout and time() - start_time > timeout:
+            if timeout is not None and time() - start_time > timeout:
                 self.finished = True
                 return {"error": "timeout"}
             if len(self.queue) != 0:
                 yield self.queue.pop(0)
 
-    def search_sync(self, query: str, mode: str = "concise", search_focus: str = "internet", attachments: list[str] = [], language: str = "en-GB", timeout: float = 30, in_page: str = None, in_domain: str = None) -> dict:
-        self._s(query, mode, search_focus, attachments, language, in_page, in_domain)
+    def search_sync(self, query: str,  timeout: Optional[float] = None, **kwargs) -> dict:
+        self._s(query, **kwargs)
 
         start_time: float = time()
         while not self.finished:
-            if timeout and time() - start_time > timeout:
+            if timeout is not None and time() - start_time > timeout:
                 self.finished = True
                 return {"error": "timeout"}
         
@@ -220,17 +226,16 @@ class Perplexity:
             with open(filename, "rb") as f:
                 file = f.read()
 
-        self._start_interaction()
-        ws_message: str = f"{self.base + self.n}" + dumps([
+        ws_message: str = f"{ClientMessage.QUERY.value + str(self.n)}" + dumps([
             "get_upload_url",
             {
-                "version": "2.1",
+                "version": "2.13",
                 "source": "default",
                 "content_type": "text/plain" if filename.split(".")[-1] == "txt" else "application/pdf",
             }
         ])
 
-        self.ws.send(ws_message)
+        self._sendquery(ws_message)
 
         while not self.finished or len(self.queue) != 0:
             if len(self.queue) != 0:
@@ -266,7 +271,6 @@ class Perplexity:
         data: dict = {"version": "2.1", "source": "default", "limit": limit, "offset": 0}
         if query: data["search_term"] = query
 
-        self._start_interaction()
         ws_message: str = f"{self.base + self.n}" + dumps([
             "list_ask_threads",
             data
@@ -281,7 +285,6 @@ class Perplexity:
     def list_autosuggest(self, query: str = "", search_focus: str = "internet") -> list[dict]:
         assert self.finished, "already searching"
 
-        self._start_interaction()
         ws_message: str = f"{self.base + self.n}" + dumps([
             "list_autosuggest",
             query,

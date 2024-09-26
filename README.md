@@ -1,14 +1,21 @@
 # perplexityai
 A python api to use perplexity.ai
 
+> [!NOTE]
+> This is a fork of [nathanrchn/perplexityai](https://github.com/nathanrchn/perplexityai) with backports from [helallao/perplexity-ai](https://github.com/helallao/perplexity-ai).
+
 # Installation
+
 You can install the package with pip and git:
+
 ```bash
-pip install git+https://github.com/nathanrchn/perplexityai.git
+pip install git+https://github.com/reteps/perplexityai.git
 ```
 
 # Basic Usage
+
 You can just import the Perplexity class and use it like this:
+
 ```python
 from perplexity import Perplexity
 
@@ -21,20 +28,25 @@ perplexity.close()
 
 # Advanced Usage
 With the new version, you can now sign in to your account and use the api to its full potential.
+
 For now the only provider supported is email, but more will be added in the future.
 ```python
 from perplexity import Perplexity
 
 perplexity = Perplexity("example@email.com")
 ```
+
 And then you will receive an email from Perplexity AI. Copy the link associated with the `Sign in` button in the middle of the email.
 The program will create a new file: `.perplexity_session` for keeping the session cookies.
 
 I you are logged in, you can now upload files to your account.
+
 ```python
 perplexity.upload("path/to/file")
 ```
+
 or
+
 ```python
 perplexity.upload("https://example.com/file")
 ```
