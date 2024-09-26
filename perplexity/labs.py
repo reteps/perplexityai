@@ -7,17 +7,21 @@ from random import getrandbits
 from websocket import WebSocketApp
 from requests import Session, get, post
 
+
 class Labs:
     def __init__(self) -> None:
         self.history: list = []
         self.session: Session = Session()
-        self.user_agent: dict = { "User-Agent": "Ask/2.2.1/334 (iOS; iPhone) isiOSOnMac/false", "X-Client-Name": "Perplexity-iOS" }
+        self.user_agent: dict = {
+            "User-Agent": "Ask/2.2.1/334 (iOS; iPhone) isiOSOnMac/false",
+            "X-Client-Name": "Perplexity-iOS",
+        }
         self.session.headers.update(self.user_agent)
         self._init_session_without_login()
 
         self.t: str = self._get_t()
         self.sid: str = self._get_sid()
-    
+
         self.queue: list = []
         self.finished: bool = True
 
@@ -32,7 +36,7 @@ class Labs:
     def _init_session_without_login(self) -> None:
         self.session.get(url=f"https://www.perplexity.ai/search/{str(uuid4())}")
         self.session.headers.update(self.user_agent)
-    
+
     def _auth_session(self) -> None:
         self.session.get(url="https://www.perplexity.ai/api/auth/session")
 
@@ -40,14 +44,16 @@ class Labs:
         return format(getrandbits(32), "08x")
 
     def _get_sid(self) -> str:
-        return loads(self.session.get(
-            url=f"https://labs-api.perplexity.ai/socket.io/?transport=polling&EIO=4"
-        ).text[1:])["sid"]
+        return loads(
+            self.session.get(
+                url=f"https://labs-api.perplexity.ai/socket.io/?transport=polling&EIO=4"
+            ).text[1:]
+        )["sid"]
 
     def _ask_anonymous_user(self) -> bool:
         response = self.session.post(
             url=f"https://labs-api.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}",
-            data="40{\"jwt\":\"anonymous-ask-user\"}"
+            data='40{"jwt":"anonymous-ask-user"}',
         ).text
 
         return response == "OK"
@@ -72,7 +78,13 @@ class Labs:
                     self.queue.append(message)
                 elif message["status"] == "completed":
                     self.finished = True
-                    self.history.append({"role": "assistant", "content": message["output"], "priority": 0})
+                    self.history.append(
+                        {
+                            "role": "assistant",
+                            "content": message["output"],
+                            "priority": 0,
+                        }
+                    )
                 elif message["status"] == "failed":
                     self.finished = True
 
@@ -84,9 +96,9 @@ class Labs:
             header=headers,
             on_open=on_open,
             on_message=on_message,
-            on_error=lambda ws, err: print(f"websocket error: {err}")
+            on_error=lambda ws, err: print(f"websocket error: {err}"),
         )
-    
+
     def _c(self, prompt: str, model: str) -> dict:
         assert self.finished, "already searching"
         assert model in [
@@ -98,12 +110,18 @@ class Labs:
             "pplx-7b-chat",
             "pplx-70b-chat",
             "pplx-7b-online",
-            "pplx-70b-online"
+            "pplx-70b-online",
         ]
         self.finished = False
         self.history.append({"role": "user", "content": prompt, "priority": 0})
-        self.ws.send("42[\"perplexity_playground\",{\"version\":\"2.1\",\"source\":\"default\",\"model\":\"" + model + "\",\"messages\":" + dumps(self.history) + "}]")
-    
+        self.ws.send(
+            '42["perplexity_playground",{"version":"2.1","source":"default","model":"'
+            + model
+            + '","messages":'
+            + dumps(self.history)
+            + "}]"
+        )
+
     def chat(self, prompt: str, model: str = "mistral-7b-instruct") -> dict:
         self._c(prompt, model)
 

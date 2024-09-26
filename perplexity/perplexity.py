@@ -10,20 +10,28 @@ from websocket import WebSocketApp
 from requests import Session, get, post
 from enum import Enum
 
+
 class ServerMessage(Enum):
     PING = "2"
     PING_ACK = "3"
     PENDING = "42"
     RESPONSE = "43"
+
+
 class ClientMessage(Enum):
     PONG = "3"
     PONG_ACK = "5"
     QUERY = "42"
 
+
 class Perplexity:
     def __init__(self, email: str) -> None:
         self.session: Session = Session()
-        self.user_agent: dict = { "User-Agent": "Ask/2.9.1/2406 (iOS; iPhone; Version 17.1) isiOSOnMac/false", "X-Client-Name": "Perplexity-iOS", "X-App-ApiClient": "ios" }
+        self.user_agent: dict = {
+            "User-Agent": "Ask/2.9.1/2406 (iOS; iPhone; Version 17.1) isiOSOnMac/false",
+            "X-Client-Name": "Perplexity-iOS",
+            "X-App-ApiClient": "ios",
+        }
         self.session.headers.update(self.user_agent)
 
         if ".perplexity_session" in listdir():
@@ -35,12 +43,12 @@ class Perplexity:
         self.email: str = email
         self.t: str = self._get_t()
         self.sid: str = self._get_sid()
-    
+
         self.n: int = 1
         self.queue: list = []
         self.finished: bool = True
         self.last_uuid: str = None
-        self.backend_uuid: str = None # unused because we can't yet follow-up questions
+        self.backend_uuid: str = None  # unused because we can't yet follow-up questions
         self.frontend_session_id: str = str(uuid4())
 
         self.ws: WebSocketApp = self._init_websocket()
@@ -58,9 +66,11 @@ class Perplexity:
             self.session.cookies.update(perplexity_session[email])
         else:
             self._login(email, perplexity_session)
-    
+
     def _login(self, email: str, ps: dict = None) -> None:
-        self.session.post(url="https://www.perplexity.ai/api/auth/signin-email", data={"email": email})
+        self.session.post(
+            url="https://www.perplexity.ai/api/auth/signin-email", data={"email": email}
+        )
 
         email_link: str = str(input("paste the link you received by email: "))
         self.session.get(email_link)
@@ -76,7 +86,7 @@ class Perplexity:
     def _init_session_without_login(self) -> None:
         self.session.get(url=f"https://www.perplexity.ai/search/{str(uuid4())}")
         self.session.headers.update(self.user_agent)
-    
+
     def _auth_session(self) -> None:
         self.session.get(url="https://www.perplexity.ai/api/auth/session")
 
@@ -84,16 +94,18 @@ class Perplexity:
         return format(getrandbits(32), "08x")
 
     def _get_sid(self) -> str:
-        return loads(self.session.get(
-            url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}"
-        ).text[1:])["sid"]
+        return loads(
+            self.session.get(
+                url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}"
+            ).text[1:]
+        )["sid"]
 
     def _get_cookies_str(self) -> str:
         cookies = ""
         for key, value in self.session.cookies.get_dict().items():
             cookies += f"{key}={value}; "
         return cookies[:-2]
-    
+
     def _write_file_url(self, filename: str, file_url: str) -> None:
         if ".perplexity_files_url" in listdir():
             with open(".perplexity_files_url", "r") as f:
@@ -118,22 +130,26 @@ class Perplexity:
                 ws.send(ClientMessage.PONG_ACK.value)
             elif not self.finished:
                 if message.startswith(ServerMessage.PENDING.value):
-                    message : list = loads(message[2:])
+                    message: list = loads(message[2:])
                     content: dict = message[1]
                     if "mode" in content and content["mode"] == "copilot":
                         content["copilot_answer"] = loads(content["text"])
                     elif "mode" in content:
                         content.update(loads(content["text"]))
                     content.pop("text")
-                    if (not ("final" in content and content["final"])) or ("status" in content and content["status"] == "completed"):
+                    if (not ("final" in content and content["final"])) or (
+                        "status" in content and content["status"] == "completed"
+                    ):
                         self.queue.append(content)
                     if message[0] == "query_answered":
                         self.last_uuid = content["uuid"]
                         self.finished = True
                 elif message.startswith(ServerMessage.RESPONSE.value + str(self.n)):
                     prefix = ServerMessage.RESPONSE.value + str(self.n)
-                    message: dict = loads(message[len(prefix):])[0]
-                    if ("uuid" in message and message["uuid"] != self.last_uuid) or "uuid" not in message:
+                    message: dict = loads(message[len(prefix) :])[0]
+                    if (
+                        "uuid" in message and message["uuid"] != self.last_uuid
+                    ) or "uuid" not in message:
                         self.queue.append(message)
                         self.finished = True
 
@@ -143,10 +159,23 @@ class Perplexity:
             cookie=self._get_cookies_str(),
             on_open=on_open,
             on_message=on_message,
-            on_error=lambda ws, err: print(f"websocket error: {err}")
+            on_error=lambda ws, err: print(f"websocket error: {err}"),
         )
-    
-    def _s(self, query: str, mode: str = "concise", search_focus: str = "internet", followup_uuid=False, follow_up=None, attachments: list[str] = [], language: str = "en-GB", timezone: str = "America/Chicago", in_page: str = None, in_domain: str = None, is_incognito: bool = False) -> None:
+
+    def _s(
+        self,
+        query: str,
+        mode: str = "concise",
+        search_focus: str = "internet",
+        followup_uuid=False,
+        follow_up=None,
+        attachments: list[str] = [],
+        language: str = "en-GB",
+        timezone: str = "America/Chicago",
+        in_page: str = None,
+        in_domain: str = None,
+        is_incognito: bool = False,
+    ) -> None:
         """
 
         Notes:
@@ -154,10 +183,20 @@ class Perplexity:
         """
         assert self.finished, "already searching"
         assert mode in ["concise", "copilot"], "invalid mode"
-        
+
         assert len(attachments) <= 4, "too many attachments: max 4"
-        assert in_page is None or in_domain is None, "in_page and in_domain can't be used together"
-        assert search_focus in ["internet", "scholar", "writing", "wolfram", "youtube", "reddit", "reasoning"], "invalid search focus"
+        assert (
+            in_page is None or in_domain is None
+        ), "in_page and in_domain can't be used together"
+        assert search_focus in [
+            "internet",
+            "scholar",
+            "writing",
+            "wolfram",
+            "youtube",
+            "reddit",
+            "reasoning",
+        ], "invalid search focus"
         if follow_up is not None:
             assert len(attachments) == 0
 
@@ -166,27 +205,29 @@ class Perplexity:
         if in_domain:
             search_focus = "in_domain"
 
-        ws_message: str = f"{ClientMessage.QUERY.value + str(self.n)}" + dumps([
-            "perplexity_ask",
-            query,
-            {
-                "version": "2.13",
-                "source": "default",
-                "last_backend_uuid": followup_uuid,
-                "read_write_token": "",
-                "attachments":  attachments,
-                "language": language,
-                "timezone": timezone,
-                "search_focus": search_focus,
-                "frontend_session_id": self.frontend_session_id,
-                "frontend_uuid": str(uuid4()),
-                "mode": mode,
-                # is_related_query, visitor_id, user_nextauth_id, frontend_context_uuid=None|uuid, prompt_source=user, query_source=modal|followup
-                "in_page": search_focus,
-                "is_incognito": is_incognito,
-                "in_domain": in_domain
-            }
-        ])
+        ws_message: str = f"{ClientMessage.QUERY.value + str(self.n)}" + dumps(
+            [
+                "perplexity_ask",
+                query,
+                {
+                    "version": "2.13",
+                    "source": "default",
+                    "last_backend_uuid": followup_uuid,
+                    "read_write_token": "",
+                    "attachments": attachments,
+                    "language": language,
+                    "timezone": timezone,
+                    "search_focus": search_focus,
+                    "frontend_session_id": self.frontend_session_id,
+                    "frontend_uuid": str(uuid4()),
+                    "mode": mode,
+                    # is_related_query, visitor_id, user_nextauth_id, frontend_context_uuid=None|uuid, prompt_source=user, query_source=modal|followup
+                    "in_page": search_focus,
+                    "is_incognito": is_incognito,
+                    "in_domain": in_domain,
+                },
+            ]
+        )
 
         self._sendquery(ws_message)
 
@@ -194,7 +235,9 @@ class Perplexity:
         self.ws.send(msg)
         self.n += 1
 
-    def search(self, query: str,  timeout: Optional[float] = None, **kwargs) -> Iterable[Dict]:
+    def search(
+        self, query: str, timeout: Optional[float] = None, **kwargs
+    ) -> Iterable[Dict]:
         self._s(query, **kwargs)
 
         start_time: float = time()
@@ -205,7 +248,9 @@ class Perplexity:
             if len(self.queue) != 0:
                 yield self.queue.pop(0)
 
-    def search_sync(self, query: str,  timeout: Optional[float] = None, **kwargs) -> dict:
+    def search_sync(
+        self, query: str, timeout: Optional[float] = None, **kwargs
+    ) -> dict:
         self._s(query, **kwargs)
 
         start_time: float = time()
@@ -213,7 +258,7 @@ class Perplexity:
             if timeout is not None and time() - start_time > timeout:
                 self.finished = True
                 return {"error": "timeout"}
-        
+
         return self.queue.pop(-1)
 
     def upload(self, filename: str) -> str:
@@ -226,14 +271,18 @@ class Perplexity:
             with open(filename, "rb") as f:
                 file = f.read()
 
-        ws_message: str = f"{ClientMessage.QUERY.value + str(self.n)}" + dumps([
-            "get_upload_url",
-            {
-                "version": "2.13",
-                "source": "default",
-                "content_type": "text/plain" if filename.split(".")[-1] == "txt" else "application/pdf",
-            }
-        ])
+        ws_message: str = f"{ClientMessage.QUERY.value + str(self.n)}" + dumps(
+            [
+                "get_upload_url",
+                {
+                    "version": "2.13",
+                    "source": "default",
+                    "content_type": "text/plain"
+                    if filename.split(".")[-1] == "txt"
+                    else "application/pdf",
+                },
+            ]
+        )
 
         self._sendquery(ws_message)
 
@@ -242,7 +291,7 @@ class Perplexity:
                 upload_data = self.queue.pop(0)
 
         assert not upload_data["rate_limited"], "rate limited"
-        
+
         post(
             url=upload_data["url"],
             files={
@@ -250,58 +299,71 @@ class Perplexity:
                 "Content-Type": (None, upload_data["fields"]["Content-Type"]),
                 "key": (None, upload_data["fields"]["key"]),
                 "AWSAccessKeyId": (None, upload_data["fields"]["AWSAccessKeyId"]),
-                "x-amz-security-token": (None, upload_data["fields"]["x-amz-security-token"]),
+                "x-amz-security-token": (
+                    None,
+                    upload_data["fields"]["x-amz-security-token"],
+                ),
                 "policy": (None, upload_data["fields"]["policy"]),
                 "signature": (None, upload_data["fields"]["signature"]),
-                "file": (filename, file)
-            }
+                "file": (filename, file),
+            },
         )
 
-        file_url: str = upload_data["url"] + upload_data["fields"]["key"].split("$")[0] + filename
+        file_url: str = (
+            upload_data["url"] + upload_data["fields"]["key"].split("$")[0] + filename
+        )
 
         self._write_file_url(filename, file_url)
 
         return file_url
-    
+
     def threads(self, query: str = None, limit: int = None) -> list[dict]:
         assert self.email, "not logged in"
         assert self.finished, "already searching"
 
-        if not limit: limit = 20
-        data: dict = {"version": "2.1", "source": "default", "limit": limit, "offset": 0}
-        if query: data["search_term"] = query
+        if not limit:
+            limit = 20
+        data: dict = {
+            "version": "2.1",
+            "source": "default",
+            "limit": limit,
+            "offset": 0,
+        }
+        if query:
+            data["search_term"] = query
 
-        ws_message: str = f"{self.base + self.n}" + dumps([
-            "list_ask_threads",
-            data
-        ])
+        ws_message: str = f"{self.base + self.n}" + dumps(["list_ask_threads", data])
 
         self.ws.send(ws_message)
 
         while not self.finished or len(self.queue) != 0:
             if len(self.queue) != 0:
                 return self.queue.pop(0)
-            
-    def list_autosuggest(self, query: str = "", search_focus: str = "internet") -> list[dict]:
+
+    def list_autosuggest(
+        self, query: str = "", search_focus: str = "internet"
+    ) -> list[dict]:
         assert self.finished, "already searching"
 
-        ws_message: str = f"{self.base + self.n}" + dumps([
-            "list_autosuggest",
-            query,
-            {
-                "has_attachment": False,
-                "search_focus": search_focus,
-                "source": "default",
-                "version": "2.1"
-            }
-        ])
+        ws_message: str = f"{self.base + self.n}" + dumps(
+            [
+                "list_autosuggest",
+                query,
+                {
+                    "has_attachment": False,
+                    "search_focus": search_focus,
+                    "source": "default",
+                    "version": "2.1",
+                },
+            ]
+        )
 
         self.ws.send(ws_message)
 
         while not self.finished or len(self.queue) != 0:
             if len(self.queue) != 0:
                 return self.queue.pop(0)
-    
+
     def close(self) -> None:
         self.ws.close()
 
