@@ -7,7 +7,7 @@ from threading import Thread
 from json import loads, dumps
 from random import getrandbits
 from websocket import WebSocketApp
-from requests import Session, get, post
+from requests import Session, post, get
 from enum import Enum
 
 

@@ -1,4 +1,3 @@
-from time import time
 from uuid import uuid4
 from json import loads, dumps
 from random import getrandbits
@@ -36,7 +35,7 @@ class AsyncLabs:
 
     async def _get_sid(self, session: ClientSession) -> str:
         async with session.get(
-            url=f"https://labs-api.perplexity.ai/socket.io/?transport=polling&EIO=4"
+            url="https://labs-api.perplexity.ai/socket.io/?transport=polling&EIO=4"
         ) as response:
             return loads((await response.text())[1:])["sid"]
 

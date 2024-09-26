@@ -1,11 +1,10 @@
-from os import listdir
 from uuid import uuid4
-from time import sleep, time
+from time import sleep
 from threading import Thread
 from json import loads, dumps
 from random import getrandbits
 from websocket import WebSocketApp
-from requests import Session, get, post
+from requests import Session
 
 
 class Labs:
@@ -46,7 +45,7 @@ class Labs:
     def _get_sid(self) -> str:
         return loads(
             self.session.get(
-                url=f"https://labs-api.perplexity.ai/socket.io/?transport=polling&EIO=4"
+                url="https://labs-api.perplexity.ai/socket.io/?transport=polling&EIO=4"
             ).text[1:]
         )["sid"]
 

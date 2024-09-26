@@ -5,7 +5,7 @@ from random import getrandbits
 from aiohttp import ClientSession
 from aiohttp.client import ClientWebSocketResponse
 from dataclasses import dataclass
-from asyncio import run, ensure_future, gather, sleep
+from asyncio import run
 
 MODELS = [
     "pplx-7b-online",
@@ -37,7 +37,7 @@ class FastLabs:
 
     async def _get_sid(self, session: ClientSession) -> str:
         async with session.get(
-            url=f"https://labs-api.perplexity.ai/socket.io/?transport=polling&EIO=4"
+            url="https://labs-api.perplexity.ai/socket.io/?transport=polling&EIO=4"
         ) as response:
             return loads((await response.text())[1:])["sid"]
 
