@@ -131,12 +131,9 @@ class Perplexity:
             elif not self.finished:
                 if message.startswith(ServerMessage.PENDING.value):
                     message: list = loads(message[2:])
+                    assert message[0] == "query_progress"
                     content: dict = message[1]
-                    if "mode" in content and content["mode"] == "copilot":
-                        content["copilot_answer"] = loads(content["text"])
-                    elif "mode" in content:
-                        content.update(loads(content["text"]))
-                    content.pop("text")
+                    content["text"] = loads(content["text"])
                     if (not ("final" in content and content["final"])) or (
                         "status" in content and content["status"] == "completed"
                     ):
@@ -324,7 +321,7 @@ class Perplexity:
         if not limit:
             limit = 20
         data: dict = {
-            "version": "2.1",
+            "version": "2.13",
             "source": "default",
             "limit": limit,
             "offset": 0,
@@ -353,7 +350,7 @@ class Perplexity:
                     "has_attachment": False,
                     "search_focus": search_focus,
                     "source": "default",
-                    "version": "2.1",
+                    "version": "2.13",
                 },
             ]
         )
