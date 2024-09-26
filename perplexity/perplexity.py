@@ -1,3 +1,6 @@
+import base64
+from io import BytesIO
+from pathlib import Path
 from typing import Iterable, Dict, Optional
 
 from os import listdir
@@ -21,7 +24,7 @@ class ServerMessage(Enum):
 
 
 class ClientMessage(Enum):
-    PING = "2" # Is this even a valid msg?
+    PING = "2"  # Is this even a valid msg?
     PONG = "3"
     PONG_ACK = "5"
     QUERY = "42"
@@ -42,7 +45,7 @@ class Perplexity:
         else:
             self._init_session_without_login()
             self._login(email)
-        
+
         self.t: str = self._get_t()
         self.sid: str = self._get_sid()
         self._ask_anonymous_user()
@@ -175,6 +178,7 @@ class Perplexity:
                     raise Exception(f"unhandled message: {message}")
             else:
                 raise Exception(f"unhandled message: {message}")
+
         return WebSocketApp(
             url=f"wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={self.sid}",
             header=self.user_agent,
@@ -286,13 +290,32 @@ class Perplexity:
 
     def upload(self, filename: str) -> str:
         assert self.finished, "already searching"
-        assert filename.split(".")[-1] in ["txt", "pdf"], "invalid file format"
+        content_types = {
+            "txt": "text/plain",
+            "pdf": "application/pdf",
+            "jpg": "image/jpeg",
+            "png": "image/png",
+        }
+
+        reverse_lookup = {v: k for k, v in content_types.items()}
 
         if filename.startswith("http"):
             file = get(filename).content
+        elif filename.startswith("data:"):
+            # Turn the base64 into a file. ignore ugly split code.
+            contents = filename.split(",", 1)[1]
+            file = BytesIO(base64.b64decode(contents))
+            type_ = filename.split(";")[0].split(":")[1]
+            filename = str(uuid4()) + "." + reverse_lookup[type_]
         else:
             with open(filename, "rb") as f:
                 file = f.read()
+
+        file_ext = Path(filename).suffix[1:]
+        assert (
+            file_ext in content_types
+        ), "invalid file format, must be one of: txt, pdf, jpg, png"
+        content_type = content_types[file_ext]
 
         ws_message: str = f"{ClientMessage.QUERY.value + str(self.n)}" + dumps(
             [
@@ -300,9 +323,7 @@ class Perplexity:
                 {
                     "version": "2.13",
                     "source": "default",
-                    "content_type": "text/plain"
-                    if filename.split(".")[-1] == "txt"
-                    else "application/pdf",
+                    "content_type": content_type,
                 },
             ]
         )
@@ -314,26 +335,20 @@ class Perplexity:
 
         assert not upload_data["rate_limited"], "rate limited"
 
-        post(
+        # Convert the fields into files
+        fields_as_files = {
+            key: (None, value) for key, value in upload_data["fields"].items()
+        }
+        resp = post(
             url=upload_data["url"],
             files={
-                "acl": (None, upload_data["fields"]["acl"]),
-                "Content-Type": (None, upload_data["fields"]["Content-Type"]),
-                "key": (None, upload_data["fields"]["key"]),
-                "AWSAccessKeyId": (None, upload_data["fields"]["AWSAccessKeyId"]),
-                "x-amz-security-token": (
-                    None,
-                    upload_data["fields"]["x-amz-security-token"],
-                ),
-                "policy": (None, upload_data["fields"]["policy"]),
-                "signature": (None, upload_data["fields"]["signature"]),
+                **fields_as_files,
                 "file": (filename, file),
             },
         )
 
-        file_url: str = (
-            upload_data["url"] + upload_data["fields"]["key"].split("$")[0] + filename
-        )
+        json = resp.json()
+        file_url: str = json["secure_url"]
 
         self._write_file_url(filename, file_url)
 
