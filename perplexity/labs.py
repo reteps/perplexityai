@@ -122,7 +122,7 @@ class Labs:
             + "}]"
         )
 
-    def chat(self, prompt: str, model: str = "mistral-7b-instruct") -> Generator[dict]:
+    def chat(self, prompt: str, model: str = "mistral-7b-instruct") -> Generator[dict, None, None]:
         self._c(prompt, model)
 
         while (not self.finished) or (len(self.queue) != 0):

@@ -14,11 +14,14 @@ from enum import Enum
 class ServerMessage(Enum):
     PING = "2"
     PING_ACK = "3"
+    ANON_RESPONSE = "40"
     PENDING = "42"
     RESPONSE = "43"
+    UNKNOWN = "6"
 
 
 class ClientMessage(Enum):
+    PING = "2" # Is this even a valid msg?
     PONG = "3"
     PONG_ACK = "5"
     QUERY = "42"
@@ -39,12 +42,13 @@ class Perplexity:
         else:
             self._init_session_without_login()
             self._login(email)
-
-        self.email: str = email
+        
         self.t: str = self._get_t()
         self.sid: str = self._get_sid()
+        self._ask_anonymous_user()
 
-        self.n: int = 1
+        self.email: str = email
+        self.n: int = 0
         self.queue: list = []
         self.finished: bool = True
         self.last_uuid: str = None
@@ -118,22 +122,35 @@ class Perplexity:
         with open(".perplexity_files_url", "w") as f:
             f.write(dumps(perplexity_files_url))
 
+    def _ask_anonymous_user(self) -> bool:
+        response = self.session.post(
+            url=f"https://www.perplexity.ai/socket.io/?EIO=4&transport=polling&t={self.t}&sid={self.sid}",
+            data='40{"jwt":"anonymous-ask-user"}',
+        ).text
+
+        return response == "OK"
+
     def _init_websocket(self) -> WebSocketApp:
         def on_open(ws: WebSocketApp) -> None:
-            ws.send("2probe")
-            ws.send("5")
+            ws.send(ClientMessage.PING.value + "probe")
+            ws.send(ClientMessage.PONG_ACK.value)
 
         def on_message(ws: WebSocketApp, message: str) -> None:
             if message == ServerMessage.PING.value:
                 ws.send(ClientMessage.PONG.value)
             elif message[0] == ServerMessage.PING_ACK.value and message[1:] == "probe":
                 ws.send(ClientMessage.PONG_ACK.value)
+            elif message.startswith(ServerMessage.ANON_RESPONSE.value):
+                pass
+            elif message.startswith(ServerMessage.UNKNOWN.value):
+                pass
             elif not self.finished:
                 if message.startswith(ServerMessage.PENDING.value):
                     message: list = loads(message[2:])
                     assert message[0] == "query_progress"
                     content: dict = message[1]
-                    content["text"] = loads(content["text"])
+                    if "text" in content:
+                        content["text"] = loads(content["text"])
                     if (not ("final" in content and content["final"])) or (
                         "status" in content and content["status"] == "completed"
                     ):
@@ -144,12 +161,20 @@ class Perplexity:
                 elif message.startswith(ServerMessage.RESPONSE.value + str(self.n)):
                     prefix = ServerMessage.RESPONSE.value + str(self.n)
                     message: dict = loads(message[len(prefix) :])[0]
+                    if "text" in message:
+                        message["text"] = loads(message["text"])
                     if (
                         "uuid" in message and message["uuid"] != self.last_uuid
                     ) or "uuid" not in message:
                         self.queue.append(message)
                         self.finished = True
+                    # Increment n for the next query
+                    self.n += 1
 
+                else:
+                    raise Exception(f"unhandled message: {message}")
+            else:
+                raise Exception(f"unhandled message: {message}")
         return WebSocketApp(
             url=f"wss://www.perplexity.ai/socket.io/?EIO=4&transport=websocket&sid={self.sid}",
             header=self.user_agent,
@@ -164,7 +189,7 @@ class Perplexity:
         query: str,
         mode: str = "concise",
         search_focus: str = "internet",
-        followup_uuid=False,
+        backend_uuid=False,
         follow_up=None,
         attachments: list[str] = [],
         language: str = "en-GB",
@@ -209,7 +234,7 @@ class Perplexity:
                 {
                     "version": "2.13",
                     "source": "default",
-                    "last_backend_uuid": followup_uuid,
+                    "last_backend_uuid": backend_uuid,
                     "read_write_token": "",
                     "attachments": attachments,
                     "language": language,
@@ -229,8 +254,9 @@ class Perplexity:
         self._sendquery(ws_message)
 
     def _sendquery(self, msg: str) -> None:
+        assert self.finished, "already searching"
+        self.finished = False
         self.ws.send(msg)
-        self.n += 1
 
     def search(
         self, query: str, timeout: Optional[float] = None, **kwargs
@@ -282,7 +308,6 @@ class Perplexity:
         )
 
         self._sendquery(ws_message)
-
         while not self.finished or len(self.queue) != 0:
             if len(self.queue) != 0:
                 upload_data = self.queue.pop(0)
