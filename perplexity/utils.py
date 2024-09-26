@@ -1,7 +1,7 @@
-from typing import Iterable, Dict
+from typing import Generator, Iterable, Dict
 
 
-def return_just_next_token(answer: Iterable[Dict]) -> str:
+def return_just_next_token(answer: Iterable[Dict]) -> Generator[str]:
     length = 0
     for partial_answer in answer:
         if "answer" in partial_answer:

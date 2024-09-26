@@ -1,3 +1,4 @@
+from typing import Generator
 from uuid import uuid4
 from time import sleep
 from threading import Thread
@@ -121,7 +122,7 @@ class Labs:
             + "}]"
         )
 
-    def chat(self, prompt: str, model: str = "mistral-7b-instruct") -> dict:
+    def chat(self, prompt: str, model: str = "mistral-7b-instruct") -> Generator[dict]:
         self._c(prompt, model)
 
         while (not self.finished) or (len(self.queue) != 0):

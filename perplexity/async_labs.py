@@ -39,7 +39,7 @@ class AsyncLabs:
         ) as response:
             return loads((await response.text())[1:])["sid"]
 
-    async def _add_session(self) -> (str, Session):
+    async def _add_session(self) -> tuple[str, Session]:
         uuid = str(uuid4())
         session = ClientSession()
         session.headers.update(self.user_agent)

@@ -1,4 +1,5 @@
 from time import time
+from typing import AsyncGenerator
 from uuid import uuid4
 from json import loads, dumps
 from random import getrandbits
@@ -41,7 +42,7 @@ class FastLabs:
         ) as response:
             return loads((await response.text())[1:])["sid"]
 
-    async def _add_session(self) -> (str, Session):
+    async def _add_session(self) -> tuple[str, Session]:
         uuid = str(uuid4())
         session = ClientSession()
         session.headers.update(self.user_agent)
@@ -89,7 +90,7 @@ class FastLabs:
             cookies_str += f"{cookie.key}={cookie.value}; "
         return cookies_str[:-2]
 
-    async def create(self, messages: list[dict], model: str) -> dict:
+    async def create(self, messages: list[dict], model: str) -> AsyncGenerator[dict]:
         session: Session = None
         start = time()
         session = await self._get_connection()
